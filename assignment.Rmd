@@ -1,0 +1,85 @@
+---
+title: "Practical Machine Learning Assignment Writeup"
+output: html_document
+---
+
+##Loading and cleaning the training and test data
+
+The caret package, training and test datasets are downloaded and then loaded into R. The source of the data comes from [this website](http://groupware.les.inf.puc-rio.br/har)
+
+```{r load, warning=FALSE}
+library(caret)
+trainURL <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+download.file(trainURL, destfile="./pml-training.csv")
+testURL <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(testURL, destfile="./pml-testing.csv")
+train <- read.csv("./pml-training.csv", stringsAsFactor = FALSE)
+test <- read.csv("./pml-testing.csv", stringsAsFactor = FALSE)
+```
+
+The data was cleaned as follows:
+
+```{r clean, cache=TRUE}
+#remove timestamp and user variables
+notimestamp <- train[,-c(1:7)]
+
+#remove variables with high numbers of NAs
+NAlist <- apply(notimestamp, 2, function(x){sum(is.na(x))})
+NAindex <- which(NAlist > 19000)
+noNA <- notimestamp[,-NAindex]
+
+#remove character variables (mostly have no data) but retain "classe" variable
+charindex <- which(sapply(noNA[,-86], is.character) == TRUE) 
+train.clean <- noNA[,-charindex]
+train.clean$classe <- as.factor(train.clean$classe)
+
+#cleaned test set as above (only using cleaned training set variables)
+varindex <- which(names(test) %in% names(train.clean))
+test.clean <- test[,varindex]
+```
+
+##Building the prediction model
+
+The train.clean data set is split into smaller training and testing sets.
+
+```{r modelsplitting, cache=TRUE}
+set.seed(111)
+inTrain <- createDataPartition(y=train.clean$classe, p=0.6, list=FALSE)
+training <- train.clean[inTrain,]
+testing <- train.clean[-inTrain,]
+```
+
+The 'rf' package was used via the 'caret' package to build a random forest model as the outcome variable is categorical in nature.
+
+```{r modelbuilding, cache=TRUE}
+fitControl <- trainControl(method="cv", number = 5)
+model <- train(classe~., data=training, method="rf", trControl = fitControl)
+model
+```
+
+Cross-validation with 5 k-folds was used to resample the data for building the trees. Smaller number of folds were used as the standard deviations in the predictor variables were very big, thus reducing the number of folds will reduce variance when tuning the model.
+
+The following shows the confusion matrix using the testing dataset:
+
+```{r confMatrix}
+pred <- predict(model, newdata=testing)
+confusionMatrix(pred, testing$classe)
+```
+
+An accuracy of 98.9% on the testing set would mean that the expected out of sample error rate for this model is `r 100 - 98.9`%
+
+The predictions for the testing set for the assignment are written to the corresponding text files 
+as recommended in the submission writeup.
+
+```{r predictions}
+answers <- as.character(predict(model, newdata=test.clean))
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+setwd("./answers/")
+pml_write_files(answers)
+```
